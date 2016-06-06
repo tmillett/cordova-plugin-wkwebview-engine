@@ -30,6 +30,7 @@
 
 @property (nonatomic, strong, readwrite) UIView* engineWebView;
 @property (nonatomic, strong, readwrite) id <WKUIDelegate> uiDelegate;
+@property (nonatomic, weak, readwrite) id <WKNavigationDelegate> navigationDelegate;
 
 @end
 
@@ -39,6 +40,7 @@
 @implementation CDVWKWebViewEngine
 
 @synthesize engineWebView = _engineWebView;
+@synthesize pluginContext = _pluginContext;
 
 - (instancetype)initWithFrame:(CGRect)frame
 {
@@ -55,6 +57,10 @@
         WKWebViewConfiguration* configuration = [[WKWebViewConfiguration alloc] init];
         configuration.userContentController = userContentController;
 
+        // the configuration property on WKWebView has the 'copy' attribute, so any changes
+        // to the configuration have to happen before the web view is initialized
+        [self updateConfigSettings:self.commandDelegate.settings forConfig:configuration];
+		
         WKWebView* wkWebView = [[WKWebView alloc] initWithFrame:frame configuration:configuration];
 
         wkWebView.UIDelegate = self.uiDelegate;
@@ -65,6 +71,16 @@
     }
 
     return self;
+}
+
+-(void) dispose
+{
+    WKWebView* wkWebView = (WKWebView*)_engineWebView;
+    [wkWebView.configuration.userContentController removeScriptMessageHandlerForName:CDV_BRIDGE_NAME];
+	wkWebView.UIDelegate = nil;
+	wkWebView.navigationDelegate = nil;
+	[wkWebView stopLoading];
+    _engineWebView = nil;
 }
 
 - (void)pluginInitialize
@@ -90,13 +106,13 @@
     [self updateSettings:self.commandDelegate.settings];
 }
 
-- (id)loadRequest:(NSURLRequest*)request
+- (id)loadRequest:(NSURLRequest*)request allowingReadAccessToURL:(NSURL*)readAccessUrl
 {
     if ([self canLoadRequest:request]) { // can load, differentiate between file urls and other schemes
         if (request.URL.fileURL) {
             SEL wk_sel = NSSelectorFromString(CDV_WKWEBVIEW_FILE_URL_LOAD_SELECTOR);
-            NSURL* readAccessUrl = [request.URL URLByDeletingLastPathComponent];
-            return ((id (*)(id, SEL, id, id))objc_msgSend)(_engineWebView, wk_sel, request.URL, readAccessUrl);
+            NSURL* accessUrl = readAccessUrl ? readAccessUrl : [request.URL URLByDeletingLastPathComponent];
+            return ((id (*)(id, SEL, id, id))objc_msgSend)(_engineWebView, wk_sel, request.URL, accessUrl);
         } else {
             return [(WKWebView*)_engineWebView loadRequest:request];
         }
@@ -114,6 +130,11 @@
                                ];
         return [self loadHTMLString:errorHtml baseURL:nil];
     }
+}
+
+- (id)loadRequest:(NSURLRequest*)request
+{
+	return [self loadRequest:request allowingReadAccessToURL:nil];
 }
 
 - (id)loadHTMLString:(NSString*)string baseURL:(NSURL*)baseURL
@@ -139,24 +160,35 @@
     }
 }
 
+- (void)updateConfigSettings:(NSDictionary*)settings forConfig:(WKWebViewConfiguration*)configuration
+{
+    configuration.preferences.minimumFontSize = [settings cordovaFloatSettingForKey:@"MinimumFontSize" defaultValue:0.0];
+    configuration.allowsInlineMediaPlayback = [settings cordovaBoolSettingForKey:@"AllowInlineMediaPlayback" defaultValue:NO];
+    configuration.suppressesIncrementalRendering = [settings cordovaBoolSettingForKey:@"SuppressesIncrementalRendering" defaultValue:NO];
+
+    // for iOS 9, mediaPlaybackRequiresUserAction and mediaPlaybackAllowsAirPlay were deprecated in favor of
+    // requiresUserActionForMediaPlayback and allowsAirPlayForMediaPlayback so map the config.xml settings accordingly
+    if (IsAtLeastiOSVersion(@"9.0")) {
+        configuration.requiresUserActionForMediaPlayback = [settings cordovaBoolSettingForKey:@"MediaPlaybackRequiresUserAction" defaultValue:YES];
+        configuration.allowsAirPlayForMediaPlayback = [settings cordovaBoolSettingForKey:@"MediaPlaybackAllowsAirPlay" defaultValue:YES];
+    } else {
+        configuration.mediaPlaybackRequiresUserAction = [settings cordovaBoolSettingForKey:@"MediaPlaybackRequiresUserAction" defaultValue:YES];
+        configuration.mediaPlaybackAllowsAirPlay = [settings cordovaBoolSettingForKey:@"MediaPlaybackAllowsAirPlay" defaultValue:YES];
+    }
+	
+    /*
+     configuration.preferences.javaScriptEnabled = [settings cordovaBoolSettingForKey:@"JavaScriptEnabled" default:YES];
+     configuration.preferences.javaScriptCanOpenWindowsAutomatically = [settings cordovaBoolSettingForKey:@"JavaScriptCanOpenWindowsAutomatically" default:NO];
+     */
+}
+
 - (void)updateSettings:(NSDictionary*)settings
 {
     WKWebView* wkWebView = (WKWebView*)_engineWebView;
-
-    wkWebView.configuration.preferences.minimumFontSize = [settings cordovaFloatSettingForKey:@"MinimumFontSize" defaultValue:0.0];
-    wkWebView.configuration.allowsInlineMediaPlayback = [settings cordovaBoolSettingForKey:@"AllowInlineMediaPlayback" defaultValue:NO];
-    wkWebView.configuration.mediaPlaybackRequiresUserAction = [settings cordovaBoolSettingForKey:@"MediaPlaybackRequiresUserAction" defaultValue:YES];
-    wkWebView.configuration.suppressesIncrementalRendering = [settings cordovaBoolSettingForKey:@"SuppressesIncrementalRendering" defaultValue:NO];
-    wkWebView.configuration.mediaPlaybackAllowsAirPlay = [settings cordovaBoolSettingForKey:@"MediaPlaybackAllowsAirPlay" defaultValue:YES];
-
-    /*
-     wkWebView.configuration.preferences.javaScriptEnabled = [settings cordovaBoolSettingForKey:@"JavaScriptEnabled" default:YES];
-     wkWebView.configuration.preferences.javaScriptCanOpenWindowsAutomatically = [settings cordovaBoolSettingForKey:@"JavaScriptCanOpenWindowsAutomatically" default:NO];
-     */
-    
+	
     // By default, DisallowOverscroll is false (thus bounce is allowed)
     BOOL bounceAllowed = !([settings cordovaBoolSettingForKey:@"DisallowOverscroll" defaultValue:NO]);
-    
+	
     // prevent webView from bouncing
     if (!bounceAllowed) {
         if ([wkWebView respondsToSelector:@selector(scrollView)]) {
@@ -192,7 +224,7 @@
     }
 
     if (navigationDelegate && [navigationDelegate conformsToProtocol:@protocol(WKNavigationDelegate)]) {
-        wkWebView.navigationDelegate = navigationDelegate;
+        self.navigationDelegate = navigationDelegate;
     }
 
     if (uiDelegate && [uiDelegate conformsToProtocol:@protocol(WKUIDelegate)]) {
@@ -225,6 +257,7 @@
 
     NSArray* jsonEntry = message.body; // NSString:callbackId, NSString:service, NSString:action, NSArray:args
     CDVInvokedUrlCommand* command = [CDVInvokedUrlCommand commandFromJson:jsonEntry];
+	command.pluginContext = self.pluginContext;
     CDV_EXEC_LOG(@"Exec(%@): Calling %@.%@", command.callbackId, command.className, command.methodName);
 
     if (![vc.commandQueue execute:command]) {
@@ -253,31 +286,36 @@
 
 - (void)webView:(WKWebView*)webView didStartProvisionalNavigation:(WKNavigation*)navigation
 {
+    if (_navigationDelegate && [_navigationDelegate respondsToSelector:@selector(webView:didStartProvisionalNavigation:)]) {
+        [_navigationDelegate webView:webView didStartProvisionalNavigation:navigation];
+    }
+
     [[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:CDVPluginResetNotification object:webView]];
 }
 
 - (void)webView:(WKWebView*)webView didFinishNavigation:(WKNavigation*)navigation
 {
+    if (_navigationDelegate && [_navigationDelegate respondsToSelector:@selector(webView:didFinishNavigation:)]) {
+        [_navigationDelegate webView:webView didFinishNavigation:navigation];
+    }
+
     CDVViewController* vc = (CDVViewController*)self.viewController;
     [CDVUserAgentUtil releaseLock:vc.userAgentLockToken];
     
     [[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:CDVPageDidLoadNotification object:webView]];
 }
 
+- (void)webView:(WKWebView *)webView didCommitNavigation:(WKNavigation *)navigation
+{
+    if (_navigationDelegate && [_navigationDelegate respondsToSelector:@selector(webView:didCommitNavigation:)]) {
+        [_navigationDelegate webView:webView didCommitNavigation:navigation];
+    }
+}
+
 - (void)webView:(WKWebView*)theWebView didFailNavigation:(WKNavigation*)navigation withError:(NSError*)error
 {
     CDVViewController* vc = (CDVViewController*)self.viewController;
     [CDVUserAgentUtil releaseLock:vc.userAgentLockToken];
-    
-    NSString* message = [NSString stringWithFormat:@"Failed to load webpage with error: %@", [error localizedDescription]];
-    NSLog(@"%@", message);
-    
-    NSURL* errorUrl = vc.errorURL;
-    if (errorUrl) {
-        errorUrl = [NSURL URLWithString:[NSString stringWithFormat:@"?error=%@", [message stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding]] relativeToURL:errorUrl];
-        NSLog(@"%@", [errorUrl absoluteString]);
-        [theWebView loadRequest:[NSURLRequest requestWithURL:errorUrl]];
-    }
 }
 
 - (BOOL)defaultResourcePolicyForURL:(NSURL*)url
@@ -290,7 +328,7 @@
     return NO;
 }
 
-- (void) webView: (WKWebView *) webView decidePolicyForNavigationAction: (WKNavigationAction*) navigationAction decisionHandler: (void (^)(WKNavigationActionPolicy)) decisionHandler
+-(void)decidePolicyForNavigationAction:(WKNavigationAction*)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler
 {
     NSURL* url = [navigationAction.request URL];
     CDVViewController* vc = (CDVViewController*)self.viewController;
@@ -322,11 +360,31 @@
      */
     BOOL shouldAllowNavigation = [self defaultResourcePolicyForURL:url];
     if (shouldAllowNavigation) {
-        return decisionHandler(YES);
+        return decisionHandler(WKNavigationActionPolicyAllow);
     } else {
         [[NSNotificationCenter defaultCenter] postNotification:[NSNotification notificationWithName:CDVPluginHandleOpenURLNotification object:url]];
     }
     
-    return decisionHandler(NO);
+    decisionHandler(WKNavigationActionPolicyCancel);
+}
+
+- (void) webView: (WKWebView *)webView decidePolicyForNavigationAction: (WKNavigationAction*)navigationAction decisionHandler: (void (^)(WKNavigationActionPolicy)) decisionHandler
+{
+    if (_navigationDelegate && [_navigationDelegate respondsToSelector:@selector(webView:decidePolicyForNavigationAction:decisionHandler:)]) {
+        [_navigationDelegate webView:webView decidePolicyForNavigationAction:navigationAction decisionHandler:^(WKNavigationActionPolicy policy) {
+            if (policy == WKNavigationActionPolicyAllow)
+            {
+                [self decidePolicyForNavigationAction:navigationAction decisionHandler:decisionHandler];
+            }
+            else
+            {
+                decisionHandler(WKNavigationActionPolicyCancel);
+            }
+        }];
+    }
+    else
+    {
+        [self decidePolicyForNavigationAction:navigationAction decisionHandler:decisionHandler];
+    }
 }
 @end

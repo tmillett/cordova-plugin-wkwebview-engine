@@ -1,14 +1,14 @@
 {
   "name": "cordova-plugin-wkwebview-engine",
-  "version": "1.0.3-dev",
-  "description": "The official Apache Cordova WKWebView Engine Plugin",
+  "version": "2.0.0",
+  "description": "AEM Mobile WKWebView Engine Plugin",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
-    "url": "https://git-wip-us.apache.org/repos/asf/cordova-plugin-wkwebview-engine.git"
+    "url": "https://github.com/adobe-marketing-cloud-mobile/cordova-plugin-wkwebview-engine.git"
   },
   "keywords": [
     "cordova",

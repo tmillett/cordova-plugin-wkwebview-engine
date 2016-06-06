@@ -21,6 +21,9 @@
 
 # Release Notes
 
+### 2.0.0 (June 6, 2016)
+* Changes to make it work with AEM Mobile.
+
 ### 1.0.2 (Feb 09, 2016)
 * [CB-10269](https://issues.apache.org/jira/browse/CB-10269) - Replace cordova exec only when present in wkwebview
 * [CB-10202](https://issues.apache.org/jira/browse/CB-10202) - Add README quirk about WKWebview does not work with the AllowInlineMediaPlayback preference
