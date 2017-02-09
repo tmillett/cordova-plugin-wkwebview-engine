@@ -46,6 +46,7 @@
                 <param name="ios-package" value="CDVWKWebViewEngine" />
             </feature>
             <preference name="CordovaWebViewEngine" value="CDVWKWebViewEngine" />
+	    <preference name="AllowInlineMediaPlayback" value="true" />
         </config-file>
 
         <framework src="WebKit.framework" weak="true" />
