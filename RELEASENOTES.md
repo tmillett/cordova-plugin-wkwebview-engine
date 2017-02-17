@@ -21,6 +21,9 @@
 
 # Release Notes
 
+### 2.0.1 (June 6, 2016)
+* Integrate public 1.1.1 release with internal 2.0.0 release to support webview configurability
+
 
 ### 1.1.1 (Dec 07, 2016)
 * [CB-12224](https://issues.apache.org/jira/browse/CB-12224) Updated version and RELEASENOTES.md for release 1.1.1
